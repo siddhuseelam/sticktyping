@@ -71,8 +71,8 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
-        x_axis = joystick.get_axis(0)
-        y_axis = joystick.get_axis(1)
+        x_axis = joystick.get_axis(3)
+        y_axis = joystick.get_axis(4)
 
         if abs(x_axis) < DEADZONE: x_axis = 0.0
         if abs(y_axis) < DEADZONE: y_axis = 0.0
