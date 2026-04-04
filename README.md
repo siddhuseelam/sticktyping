@@ -2,7 +2,9 @@
 
 Welcome to **StickTyping**, an experimental unistroke smart-keyboard that brings fast and fluid text input to game controllers using a custom deep-learning hybrid engine! By combining sequential Neural Network classification with English Dictionary Context, you can naturally sketch letters and type words using only two thumbsticks.
 
-![Typing Demo](./screenrecording-2026-04-05_02-29-13.mp4)
+<video src="./screenrecording-2026-04-05_02-29-13.mp4" controls="controls" style="max-width: 800px;">
+  Your browser does not support the video tag.
+</video>
 
 ---
 
