@@ -11,6 +11,10 @@ FPS = 60
 DEADZONE = 0.2
 SEGMENT_DELAY = 0.15
 
+# Auto-Select Feature: If the combined AI confidence is higher than this,
+# bypass the Left Stick selection menu entirely.
+AUTO_SELECT_THRESHOLD = 0.90 
+
 # Axis Definitions 
 LS_X, LS_Y = 0, 1 
 RS_X, RS_Y = 3, 4 
@@ -22,7 +26,7 @@ BTN_X = 2
 BTN_Y = 3
 BTN_LB = 4
 BTN_RB = 5
-BTN_SELECT = 6  # Added for toggling stroke visibility
+BTN_SELECT = 6  
 
 # Colors
 BG_COLOR = (30, 30, 34)
@@ -48,27 +52,17 @@ def get_stick_direction(x, y, deadzone=DEADZONE):
 
 # --- Procedural Sound Synthesizer ---
 def create_ui_sound(freq, duration=0.1, vol=0.3):
-    """Generates a clean, mathematical sound wave with a smooth fade-out (envelope)."""
     sample_rate = 44100
     n_samples = int(sample_rate * duration)
     t = np.linspace(0, duration, n_samples, False)
-    
-    # Sine wave for pure, clean tone
     wave = np.sin(freq * t * 2 * np.pi)
-    
-    # Exponential decay so it 'pops' or 'ticks' instead of buzzing
     envelope = np.exp(-t * (10 / duration)) 
     audio = wave * envelope * vol
-    
-    # Convert to 16-bit PCM for Pygame
     audio = (audio * 32767).astype(np.int16)
-    
-    # Duplicate for stereo
     stereo_audio = np.column_stack((audio, audio))
     return pygame.sndarray.make_sound(stereo_audio)
 
 def main():
-    # Pre-init audio for zero-latency, high-quality playback
     pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
     pygame.joystick.init()
@@ -91,12 +85,12 @@ def main():
     joystick.init()
 
     # --- Generate UI Sounds ---
-    snd_menu_pop = create_ui_sound(600, 0.05, 0.15)    # Radial menu appears
-    snd_char_tick = create_ui_sound(900, 0.08, 0.2)    # Character selected
-    snd_word_chime = create_ui_sound(1200, 0.15, 0.25) # Word completed
-    snd_space = create_ui_sound(400, 0.08, 0.15)       # Spacebar
-    snd_delete = create_ui_sound(250, 0.12, 0.2)       # Backspace/Delete (lower thud)
-    snd_toggle = create_ui_sound(2000, 0.03, 0.1)      # High-pitched mechanical click
+    snd_menu_pop = create_ui_sound(600, 0.05, 0.15)    
+    snd_char_tick = create_ui_sound(900, 0.08, 0.2)    
+    snd_word_chime = create_ui_sound(1200, 0.15, 0.25) 
+    snd_space = create_ui_sound(400, 0.08, 0.15)       
+    snd_delete = create_ui_sound(250, 0.12, 0.2)       
+    snd_toggle = create_ui_sound(2000, 0.03, 0.1)      
 
     # App States
     state = "DRAWING" 
@@ -104,7 +98,7 @@ def main():
     current_word = ""
     current_stroke = []
     center_return_time = None
-    show_stroke = True # The new toggle switch
+    show_stroke = True 
     
     top_4_chars = [] 
     top_4_words = []
@@ -120,7 +114,6 @@ def main():
     while running:
         screen.fill(BG_COLOR)
         
-        # Handle Haptic Feedback Timer
         if pending_second_rumble and time.time() >= second_rumble_time:
             joystick.rumble(0.8, 0.8, 150) 
             pending_second_rumble = False
@@ -191,7 +184,6 @@ def main():
                         pending_second_rumble = True
                         second_rumble_time = time.time() + 0.25 
 
-        # Read Joysticks
         rs_x = joystick.get_axis(RS_X)
         rs_y = joystick.get_axis(RS_Y)
         ls_x = joystick.get_axis(LS_X)
@@ -208,6 +200,7 @@ def main():
                     elif time.time() - center_return_time >= SEGMENT_DELAY:
                         final_preds = engine.get_top_4_predictions(current_stroke, current_word)
                         top_4_chars = [p[0] for p in final_preds]
+                        top_score = final_preds[0][1] # Combined probability of the #1 prediction
                         
                         if engine.model:
                             raw_coords = [[pt["x"], pt["y"]] for pt in current_stroke]
@@ -217,9 +210,31 @@ def main():
                             top_s_idx = np.argsort(s_preds)[-5:][::-1]
                             debug_stroke = [(engine.int_to_char[i], s_preds[i]) for i in top_s_idx]
                         
-                        state = "SELECTING"
-                        snd_menu_pop.play() # Sound when radial menu pops up
-                        center_return_time = None
+                        # --- THE AUTO-SELECT LOGIC ---
+                        if top_score >= AUTO_SELECT_THRESHOLD:
+                            selected_char = top_4_chars[0]
+                            
+                            # Fire haptics and audio immediately
+                            snd_char_tick.play()
+                            joystick.rumble(0.5, 0.5, 100)
+
+                            # Inject text
+                            text_buffer += selected_char.upper()
+                            current_word += selected_char.lower()
+                            
+                            # Update dictionary and words
+                            top_4_words = engine.get_word_suggestions(current_word)
+                            c_preds = engine.context_engine.get_next_char_probabilities(current_word)
+                            debug_context = sorted(c_preds.items(), key=lambda x: x[1], reverse=True)[:5]
+                            
+                            # Reset stroke, stay in DRAWING state
+                            current_stroke = []
+                            center_return_time = None
+                        else:
+                            # Model isn't confident enough; ask user for manual selection
+                            state = "SELECTING"
+                            snd_menu_pop.play() 
+                            center_return_time = None
 
         elif state == "SELECTING":
             ls_dir = get_stick_direction(ls_x, ls_y)
@@ -230,7 +245,7 @@ def main():
                 elif ls_dir == "DOWN": selected_char = top_4_chars[2]
                 elif ls_dir == "LEFT": selected_char = top_4_chars[3]
                 
-                snd_char_tick.play() # Sound for selecting a character
+                snd_char_tick.play() 
                 joystick.rumble(0.5, 0.5, 100)
 
                 text_buffer += selected_char.upper()
@@ -248,13 +263,11 @@ def main():
         # RENDERING LOGIC
         # ==========================================
         
-        # 1. Text Input Field
         pygame.draw.rect(screen, PANEL_COLOR, (40, 40, WIDTH - 80, 80), border_radius=10)
         display_text = text_buffer[-45:].upper() + ("_" if time.time() % 1 > 0.5 else " ")
         txt_surf = font_large.render(display_text, True, TEXT_COLOR)
         screen.blit(txt_surf, (60, 55))
 
-        # 2. Main Interaction Area
         center_x, center_y = 350, 420
         scale = 150
         
@@ -265,7 +278,6 @@ def main():
             inst_surf = font_med.render(status_text, True, DEBUG_TEXT_COLOR)
             screen.blit(inst_surf, (center_x - inst_surf.get_width()//2, center_y + 220))
             
-            # Only draw the lines if show_stroke is True
             if current_stroke and show_stroke:
                 points = [(int(center_x + (pt["x"] * scale)), int(center_y + (pt["y"] * scale))) for pt in current_stroke]
                 if len(points) > 1: pygame.draw.lines(screen, STROKE_COLOR, False, points, 5)
@@ -285,7 +297,6 @@ def main():
                         char_surf = font_large.render(top_4_chars[idx].upper(), True, RADIAL_COLOR)
                     screen.blit(char_surf, char_surf.get_rect(center=pos))
 
-        # 3. Word Suggestions
         word_center_x, word_center_y = 820, 420
         w_title = font_med.render("SUGGESTIONS", True, TEXT_COLOR)
         screen.blit(w_title, (word_center_x - w_title.get_width()//2, 170))
@@ -307,7 +318,6 @@ def main():
             none_surf = font_small.render("KEEP TYPING...", True, DEBUG_TEXT_COLOR)
             screen.blit(none_surf, none_surf.get_rect(center=(word_center_x, word_center_y)))
 
-        # 4. Debug Menu
         debug_x = 1060
         pygame.draw.rect(screen, PANEL_COLOR, (debug_x, 160, 180, 450), border_radius=10)
         
@@ -330,7 +340,6 @@ def main():
             lbl = font_small.render(f" {char.upper()}: {prob*100:4.0f}%", True, TEXT_COLOR)
             screen.blit(lbl, (debug_x + 10, 385 + (i * 20)))
 
-        # Control Mapping Hint at bottom of Debug Menu
         hint_surf = font_small.render("SELECT: TGL STROKE", True, DEBUG_TEXT_COLOR)
         screen.blit(hint_surf, (debug_x + 10, 580))
 

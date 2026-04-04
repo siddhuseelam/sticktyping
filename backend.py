@@ -12,7 +12,7 @@ from wordfreq import word_frequency, top_n_list
 # 1.0 = 100% trust in the drawing (ignore dictionary completely).
 # 0.0 = 100% trust in the dictionary (ignore drawing completely).
 # 0.6 to 0.8 is usually the sweet spot for a smart keyboard.
-ALPHA = 0.7  
+ALPHA = 0.8  
 
 MODEL_PATH = 'unistroke_hybrid_model.keras'
 TARGET_LEN = 60
