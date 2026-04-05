@@ -1,0 +1,15 @@
+# Machine Learning & Data Science
+tensorflow
+scipy
+scikit-learn
+numpy
+
+# UI & Graphics
+pygame
+
+# Utilities & Linguistics
+pygtrie
+wordfreq
+
+# Backend / Internal (Assumed local, but listed if external)
+# backend (This is your local module; do not include in pip install)
